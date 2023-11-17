@@ -1,57 +1,78 @@
-//create web server
-const express = require("express");
-const app = express();
+// Create web server
+
+const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const axios = require('axios');
 
-//set up body-parser
+// Create express app
+const app = express();
+
+// Use body parser
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
 
-//set up cors
+// Enable cors
 app.use(cors());
 
-//set up mongoose
-const mongoose = require('mongoose');
-mongoose.connect('mongodb://localhost:27017/comments');
+// Object to store comments
+const commentsByPostId = {};
 
-//set up comments model
-const Comment = mongoose.model('Comment', {
-  username: String,
-  body: String,
-  date: String
-});
+// Route to handle post request to create comment
+app.post('/posts/:id/comments', async (req, res) => {
+  const { content } = req.body;
+  const { id: postId } = req.params;
 
-//get all comments
-app.get('/api/comments', (req, res) => {
-  Comment.find({}, (err, comments) => {
-    res.send(comments);
+  // Get comments for the post id
+  const comments = commentsByPostId[postId] || [];
+
+  // Push new comment
+  comments.push({ id: comments.length + 1, content, status: 'pending' });
+
+  // Update comments for the post id
+  commentsByPostId[postId] = comments;
+
+  // Emit event to event bus
+  await axios.post('http://event-bus-srv:4005/events', {
+    type: 'CommentCreated',
+    data: { id: comments.length, content, postId, status: 'pending' },
   });
+
+  // Send response
+  res.status(201).send(comments);
 });
 
-//add comment
-app.post('/api/comments', (req, res) => {
-  const newComment = new Comment(req.body);
-  newComment.save((err, comment) => {
-    res.send(comment);
-  });
+// Route to handle get request to get comments for a post id
+app.get('/posts/:id/comments', (req, res) => {
+  const { id: postId } = req.params;
+
+  // Get comments for the post id
+  const comments = commentsByPostId[postId] || [];
+
+  // Send response
+  res.send(comments);
 });
 
-//delete comment
-app.delete('/api/comments/:id', (req, res) => {
-  Comment.findByIdAndRemove(req.params.id, (err, comment) => {
-    res.send(comment);
-  });
-});
+// Route to handle post request to update comment status
+app.post('/events', async (req, res) => {
+  const { type, data } = req.body;
 
-//update comment
-app.put('/api/comments/:id', (req, res) => {
-  Comment.findByIdAndUpdate(req.params.id, req.body, (err, comment) => {
-    res.send(comment);
-  });
-});
+  // Check for comment created event
+  if (type === 'CommentModerated') {
+    const { id, postId, status, content } = data;
 
-//start server
-app.listen(3001, () => {
-  console.log("Server listening on port 3001");
-});
+    // Get comments for the post id
+    const comments = commentsByPostId[postId];
+
+    // Find the comment with the id
+    const comment = comments.find((c) => c.id === id);
+
+    // Update status
+    comment.status = status;
+
+    // Emit event to event bus
+    await axios.post('http://event-bus-srv:4005/events', {
+      type: 'CommentUpdated',
+      data: { id, postId, status, content },
+    });
+    }
+    });
