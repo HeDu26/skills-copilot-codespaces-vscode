@@ -1,77 +1,57 @@
-// create web server
-const express = require('express');
+//create web server
+const express = require("express");
 const app = express();
-// create server
-const server = require('http').Server(app);
-// create socket
-const io = require('socket.io')(server);
-// create mongoose
-const mongoose = require('mongoose');
-// create port
-const port = process.env.PORT || 3000;
-// create database
-const db = require('./config/keys').mongoURI;
-// connect to database
-mongoose.connect(db, {useNewUrlParser: true})
-    .then(() => console.log('MongoDB Connected...'))
-    .catch(err => console.log(err));
-// create schema
-const Comment = require('./models/Comment');
-// create cors
+const bodyParser = require('body-parser');
 const cors = require('cors');
-// use cors
+
+//set up body-parser
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+//set up cors
 app.use(cors());
 
-// create route
-app.get('/', (req, res) => {
-    res.send('Hello World');
+//set up mongoose
+const mongoose = require('mongoose');
+mongoose.connect('mongodb://localhost:27017/comments');
+
+//set up comments model
+const Comment = mongoose.model('Comment', {
+  username: String,
+  body: String,
+  date: String
 });
 
-// create socket connection
-io.on('connection', socket => {
-    console.log('a user connected');
-    // get all comments
-    Comment.find().then(comments => {
-        // send comments to client
-        socket.emit('initial comments', comments);
-    });
-    // listen to add comment
-    socket.on('add comment', comment => {
-        // create new comment
-        const newComment = new Comment({
-            username: comment.username,
-            content: comment.content,
-            created_at: comment.created_at
-        });
-        // save comment
-        newComment.save().then(comment => {
-            // send comment to client
-            io.emit('new comment', comment);
-        });
-    });
-    // listen to delete comment
-    socket.on('delete comment', id => {
-        // delete comment
-        Comment.findByIdAndDelete(id).then(comment => {
-            // send comment to client
-            io.emit('deleted comment', comment);
-        });
-    });
-    // listen to update comment
-    socket.on('update comment', comment => {
-        // update comment
-        Comment.findByIdAndUpdate(comment._id, {content: comment.content}).then(comment => {
-            // send comment to client
-            io.emit('updated comment', comment);
-        });
-    });
-    // listen to disconnect
-    socket.on('disconnect', () => {
-        console.log('user disconnected');
-    });
+//get all comments
+app.get('/api/comments', (req, res) => {
+  Comment.find({}, (err, comments) => {
+    res.send(comments);
+  });
 });
 
-// listen to port
-server.listen(port, () => {
-    console.log(`Server running on port ${port}`);
+//add comment
+app.post('/api/comments', (req, res) => {
+  const newComment = new Comment(req.body);
+  newComment.save((err, comment) => {
+    res.send(comment);
+  });
+});
+
+//delete comment
+app.delete('/api/comments/:id', (req, res) => {
+  Comment.findByIdAndRemove(req.params.id, (err, comment) => {
+    res.send(comment);
+  });
+});
+
+//update comment
+app.put('/api/comments/:id', (req, res) => {
+  Comment.findByIdAndUpdate(req.params.id, req.body, (err, comment) => {
+    res.send(comment);
+  });
+});
+
+//start server
+app.listen(3001, () => {
+  console.log("Server listening on port 3001");
 });
